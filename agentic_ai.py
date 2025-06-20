@@ -55,13 +55,11 @@ def get_business_relevant_columns(df):
         'transaction_id', 'invoice_id', 'record_id', 'index', 'key',
         'guid', 'uuid', 'code', 'sku', '_id'
     ]
-    
     business_columns = {
         'categorical': [],
         'numerical': [],
         'temporal': []
     }
-    
     for col in df.columns:
         col_lower = col.lower().replace(' ', '_').replace('-', '_')
         if any(pattern in col_lower for pattern in avoid_patterns):
@@ -74,23 +72,22 @@ def get_business_relevant_columns(df):
             business_columns['temporal'].append(col)
         elif pd.api.types.is_numeric_dtype(df[col]):
             business_columns['numerical'].append(col)
-    
     return business_columns
 
-# Updated AI Agent Classes with code generation focus
+# Updated AI Agent Classes
 class DataAnalystAgent:
     def __init__(self):
         self.name = "Data Analyst Agent"
     
     def analyze_dataset(self, df):
-        """Perform intelligent data analysis focused on code generation"""
+        """Perform intelligent data analysis focused on code generation or AI chart specs"""
         try:
             business_cols = get_business_relevant_columns(df)
             profile = self._generate_smart_data_profile(df, business_cols)
+            use_code_based = st.session_state.get('use_code_based_charts', True)
             
-            # Focus on code generation rather than insights
             analysis_prompt = f"""
-            You are an expert data analyst. Generate Python code for data visualization.
+            You are an expert data analyst. Generate {'Python code for data visualization' if use_code_based else 'chart specifications for direct plotting'}.
             
             Dataset Overview:
             - Shape: {df.shape[0]} rows, {df.shape[1]} columns
@@ -101,9 +98,9 @@ class DataAnalystAgent:
             Data Profile:
             {profile}
             
-            Generate a JSON response with 4 different chart recommendations.
+            Generate a JSON response with 4 chart recommendations.
             Each recommendation should include:
-            - "code": Complete Python code using Plotly Express (px) or Plotly Graph Objects (go)
+            - {'"code": Complete Python code using Plotly Express (px) or Plotly Graph Objects (go), assigning figure to "fig" variable' if use_code_based else '"spec": JSON Plotly chart specification (data, layout)'}
             - "type": Chart type (bar, line, scatter, heatmap, box, violin, etc.)
             - "title": Descriptive title
             - "x_col": X-axis column name
@@ -112,55 +109,41 @@ class DataAnalystAgent:
             - "priority": "high", "medium", or "low"
             
             Important:
-            1. Use Plotly (px or go) for all visualizations
-            2. Code must assign the figure to a variable called 'fig'
-            3. Different chart types for variety
-            4. Focus on business-relevant columns only
+            1. {'Use Plotly (px or go) for code-based visualizations' if use_code_based else 'Return JSON chart specs compatible with Plotly'}.
+            2. {'Code must assign figure to "fig"' if use_code_based else 'Spec must include data and layout'}.
+            3. Different chart types for variety.
+            4. Focus on business-relevant columns only.
             
             Return ONLY valid JSON with a "recommendations" array.
             """
-            
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": analysis_prompt}],
                 temperature=0.3,
                 max_tokens=2000
             )
-            
             response_text = response.choices[0].message.content.strip()
             if response_text.startswith('```json'):
                 response_text = response_text.replace('```json', '').replace('```', '').strip()
-            
             analysis = json.loads(response_text)
-            
-            # Ensure we have recommendations
             if 'recommendations' not in analysis:
                 analysis['recommendations'] = analysis.get('charts', [])
-            
             return analysis
-            
         except Exception as e:
             print(f"Analysis error: {str(e)}")
             return self._generate_fallback_analysis(df, business_cols)
     
     def _generate_smart_data_profile(self, df, business_cols):
-        """Generate statistical profile focusing on business columns"""
         profile = []
-        
-        # Numerical statistics
         for col in business_cols['numerical'][:5]:
             if col in df.columns:
                 stats = df[col].describe()
                 profile.append(f"- {col}: mean={stats['mean']:.2f}, std={stats['std']:.2f}, range=[{stats['min']:.2f}, {stats['max']:.2f}]")
-        
-        # Categorical statistics
         for col in business_cols['categorical'][:5]:
             if col in df.columns:
                 unique_count = df[col].nunique()
                 top_values = df[col].value_counts().head(3).to_dict()
                 profile.append(f"- {col}: {unique_count} categories, top: {list(top_values.keys())}")
-        
-        # Correlation analysis
         if len(business_cols['numerical']) > 1:
             num_cols = [col for col in business_cols['numerical'] if col in df.columns][:5]
             if len(num_cols) > 1:
@@ -173,206 +156,428 @@ class DataAnalystAgent:
                             high_corr.append(f"{corr_matrix.columns[i]} vs {corr_matrix.columns[j]}: {corr_val:.3f}")
                 if high_corr:
                     profile.append(f"High correlations: {', '.join(high_corr[:3])}")
-        
         return "\n".join(profile) if profile else "Basic dataset profile generated"
     
     def _generate_fallback_analysis(self, df, business_cols):
-        """Generate fallback analysis with basic charts"""
         recommendations = []
-        
-        # Chart 1: Bar chart
+        use_code_based = st.session_state.get('use_code_based_charts', True)
         if business_cols['categorical'] and business_cols['numerical']:
             cat_col = business_cols['categorical'][0]
             num_col = business_cols['numerical'][0]
-            
-            code = f"""import plotly.express as px
+            if use_code_based:
+                code = f"""import plotly.express as px
 import pandas as pd
-
-# Aggregate data
 grouped = df.groupby('{cat_col}')['{num_col}'].mean().sort_values(ascending=False).head(10)
-
-# Create bar chart
 fig = px.bar(x=grouped.index, y=grouped.values,
              title='Average {num_col} by {cat_col}',
              labels={{'x': '{cat_col}', 'y': 'Average {num_col}'}})
 fig.update_layout(xaxis_tickangle=-45)"""
-            
-            recommendations.append({
-                "code": code,
-                "type": "bar",
-                "title": f"Average {num_col} by {cat_col}",
-                "x_col": cat_col,
-                "y_col": num_col,
-                "reason": "Shows performance metrics by category",
-                "priority": "high"
-            })
-        
-        # Chart 2: Line chart for time series
+                recommendations.append({
+                    "code": code,
+                    "type": "bar",
+                    "title": f"Average {num_col} by {cat_col}",
+                    "x_col": cat_col,
+                    "y_col": num_col,
+                    "reason": "Shows performance metrics by category",
+                    "priority": "high"
+                })
+            else:
+                recommendations.append({
+                    "spec": {
+                        "data": [{"x": [], "y": [], "type": "bar"}],
+                        "layout": {
+                            "title": f"Average {num_col} by {cat_col}",
+                            "xaxis": {"title": cat_col, "tickangle": -45},
+                            "yaxis": {"title": f"Average {num_col}"}
+                        }
+                    },
+                    "type": "bar",
+                    "title": f"Average {num_col} by {cat_col}",
+                    "x_col": cat_col,
+                    "y_col": num_col,
+                    "reason": "Shows performance metrics by category",
+                    "priority": "high"
+                })
         if business_cols['temporal'] and business_cols['numerical']:
             time_col = business_cols['temporal'][0]
             num_col = business_cols['numerical'][0]
-            
-            code = f"""import plotly.express as px
+            if use_code_based:
+                code = f"""import plotly.express as px
 import pandas as pd
-
-# Prepare time series data
 df_time = df.copy()
 df_time['{time_col}'] = pd.to_datetime(df_time['{time_col}'])
 time_series = df_time.groupby('{time_col}')['{num_col}'].sum().reset_index()
-
-# Create line chart
 fig = px.line(time_series, x='{time_col}', y='{num_col}',
               title='{num_col} Over Time',
               labels={{'x': 'Date', 'y': '{num_col}'}})"""
-            
-            recommendations.append({
-                "code": code,
-                "type": "line",
-                "title": f"{num_col} Over Time",
-                "x_col": time_col,
-                "y_col": num_col,
-                "reason": "Reveals temporal trends and patterns",
-                "priority": "high"
-            })
-        
-        # Chart 3: Distribution
+                recommendations.append({
+                    "code": code,
+                    "type": "line",
+                    "title": f"{num_col} Over Time",
+                    "x_col": time_col,
+                    "y_col": num_col,
+                    "reason": "Reveals temporal trends and patterns",
+                    "priority": "high"
+                })
+            else:
+                recommendations.append({
+                    "spec": {
+                        "data": [{"x": [], "y": [], "type": "scatter", "mode": "lines"}],
+                        "layout": {
+                            "title": f"{num_col} Over Time",
+                            "xaxis": {"title": "Date"},
+                            "yaxis": {"title": num_col}
+                        }
+                    },
+                    "type": "line",
+                    "title": f"{num_col} Over Time",
+                    "x_col": time_col,
+                    "y_col": num_col,
+                    "reason": "Reveals temporal trends and patterns",
+                    "priority": "high"
+                })
         if business_cols['numerical']:
             num_col = business_cols['numerical'][0]
-            
-            code = f"""import plotly.express as px
-
-# Create distribution plot
+            if use_code_based:
+                code = f"""import plotly.express as px
 fig = px.histogram(df, x='{num_col}', 
                    title='Distribution of {num_col}',
                    nbins=30,
                    labels={{'x': '{num_col}', 'y': 'Count'}})
 fig.add_vline(x=df['{num_col}'].mean(), line_dash="dash", 
               annotation_text="Mean", annotation_position="top right")"""
-            
-            recommendations.append({
-                "code": code,
-                "type": "histogram",
-                "title": f"Distribution of {num_col}",
-                "x_col": num_col,
-                "y_col": None,
-                "reason": "Shows data distribution and outliers",
-                "priority": "medium"
-            })
-        
-        # Chart 4: Scatter plot
+                recommendations.append({
+                    "code": code,
+                    "type": "histogram",
+                    "title": f"Distribution of {num_col}",
+                    "x_col": num_col,
+                    "y_col": None,
+                    "reason": "Shows data distribution and outliers",
+                    "priority": "medium"
+                })
+            else:
+                recommendations.append({
+                    "spec": {
+                        "data": [{"x": [], "type": "histogram", "nbinsx": 30}],
+                        "layout": {
+                            "title": f"Distribution of {num_col}",
+                            "xaxis": {"title": num_col},
+                            "yaxis": {"title": "Count"},
+                            "shapes": [{
+                                "type": "line",
+                                "x0": df[num_col].mean(),
+                                "x1": df[num_col].mean(),
+                                "y0": 0,
+                                "y1": 1,
+                                "yref": "paper",
+                                "line": {"dash": "dash"}
+                            }]
+                        }
+                    },
+                    "type": "histogram",
+                    "title": f"Distribution of {num_col}",
+                    "x_col": num_col,
+                    "y_col": None,
+                    "reason": "Shows data distribution and outliers",
+                    "priority": "medium"
+                })
         if len(business_cols['numerical']) >= 2:
             x_col = business_cols['numerical'][0]
             y_col = business_cols['numerical'][1]
-            
-            code = f"""import plotly.express as px
-
-# Create scatter plot
+            if use_code_based:
+                code = f"""import plotly.express as px
 fig = px.scatter(df, x='{x_col}', y='{y_col}',
                  title='{y_col} vs {x_col}',
                  labels={{'x': '{x_col}', 'y': '{y_col}'}},
                  trendline="ols")"""
-            
-            recommendations.append({
-                "code": code,
-                "type": "scatter",
-                "title": f"{y_col} vs {x_col}",
-                "x_col": x_col,
-                "y_col": y_col,
-                "reason": "Explores relationships between metrics",
-                "priority": "medium"
-            })
-        
+                recommendations.append({
+                    "code": code,
+                    "type": "scatter",
+                    "title": f"{y_col} vs {x_col}",
+                    "x_col": x_col,
+                    "y_col": y_col,
+                    "reason": "Explores relationships between metrics",
+                    "priority": "medium"
+                })
+            else:
+                recommendations.append({
+                    "spec": {
+                        "data": [{"x": [], "y": [], "type": "scatter", "mode": "markers"}],
+                        "layout": {
+                            "title": f"{y_col} vs {x_col}",
+                            "xaxis": {"title": x_col},
+                            "yaxis": {"title": y_col}
+                        }
+                    },
+                    "type": "scatter",
+                    "title": f"{y_col} vs {x_col}",
+                    "x_col": x_col,
+                    "y_col": y_col,
+                    "reason": "Explores relationships between metrics",
+                    "priority": "medium"
+                })
         return {"recommendations": recommendations[:4]}
 
 class ChartCreatorAgent:
     def __init__(self):
         self.name = "Chart Creator Agent"
-        self.max_charts = 4  # Show 3-4 charts by default
+        self.max_charts = 4
     
     def create_intelligent_charts(self, df, analysis):
-        """Create charts using either code generation or direct plotting"""
+        """Create charts using either code generation or direct AI specs"""
         charts = []
         business_cols = get_business_relevant_columns(df)
-        
         try:
-            # Use code-based approach when toggle is enabled
             if st.session_state.get('use_code_based_charts', True):
                 charts = self._create_code_based_charts(df, analysis, business_cols)
             else:
-                # Original AI-generated charts (kept for toggle functionality)
-                charts = self._create_fallback_charts(df, business_cols)
-            
-            # Ensure we return 3-4 charts
+                charts = self._create_ai_generated_charts(df, analysis, business_cols)
             return charts[:self.max_charts]
-            
         except Exception as e:
             print(f"Chart creation error: {str(e)}")
             return self._create_fallback_charts(df, business_cols)[:self.max_charts]
+
+    def _create_fallback_charts(self, df, business_cols):
+        charts = []
+        if business_cols['categorical'] and business_cols['numerical']:
+            cat_col = business_cols['categorical'][0]
+            num_col = business_cols['numerical'][0]
+            try:
+                grouped = df.groupby(cat_col)[num_col].mean().sort_values(ascending=False).head(10)
+                fig = px.bar(
+                    x=grouped.index, 
+                    y=grouped.values,
+                    title=f"Average {num_col} by {cat_col}",
+                    labels={'x': cat_col, 'y': f'Average {num_col}'}
+                )
+                code = f"""import plotly.express as px
+grouped = df.groupby('{cat_col}')['{num_col}'].mean().sort_values(ascending=False).head(10)
+fig = px.bar(x=grouped.index, y=grouped.values, 
+             title="Average {num_col} by {cat_col}")"""
+                charts.append({
+                    'figure': create_dark_chart(fig),
+                    'title': f"Average {num_col} by {cat_col}",
+                    'type': 'bar',
+                    'x_col': cat_col,
+                    'y_col': num_col,
+                    'code': code,
+                    'data': df,
+                    'priority': 'high',
+                    'reason': 'Top performing categories analysis'
+                })
+            except Exception as e:
+                print(f"Bar chart error: {str(e)}")
+        if business_cols['temporal'] and business_cols['numerical']:
+            time_col = business_cols['temporal'][0]
+            num_col = business_cols['numerical'][0]
+            try:
+                df_time = df.copy()
+                df_time[time_col] = pd.to_datetime(df_time[time_col], errors='coerce')
+                df_time = df_time.dropna(subset=[time_col])
+                time_series = df_time.groupby(time_col)[num_col].sum().reset_index()
+                fig = px.line(
+                    time_series, 
+                    x=time_col, 
+                    y=num_col,
+                    title=f"{num_col} Over Time"
+                )
+                code = f"""import plotly.express as px
+df_time = df.copy()
+df_time['{time_col}'] = pd.to_datetime(df_time['{time_col}'])
+time_series = df_time.groupby('{time_col}')['{num_col}'].sum().reset_index()
+fig = px.line(time_series, x='{time_col}', y='{num_col}', 
+              title="{num_col} Over Time")"""
+                charts.append({
+                    'figure': create_dark_chart(fig),
+                    'title': f"{num_col} Over Time",
+                    'type': 'line',
+                    'x_col': time_col,
+                    'y_col': num_col,
+                    'code': code,
+                    'data': df,
+                    'priority': 'high',
+                    'reason': 'Temporal trend analysis'
+                })
+            except Exception as e:
+                print(f"Time series chart error: {str(e)}")
+        if len(business_cols['numerical']) > 0:
+            num_col = business_cols['numerical'][0]
+            try:
+                fig = px.histogram(
+                    df, 
+                    x=num_col,
+                    title=f"Distribution of {num_col}",
+                    nbins=30
+                )
+                code = f"""import plotly.express as px
+fig = px.histogram(df, x='{num_col}', 
+                   title="Distribution of {num_col}", nbins=30)"""
+                charts.append({
+                    'figure': create_dark_chart(fig),
+                    'title': f"Distribution of {num_col}",
+                    'type': 'histogram',
+                    'x_col': num_col,
+                    'y_col': None,
+                    'code': code,
+                    'data': df,
+                    'priority': 'medium',
+                    'reason': 'Statistical distribution analysis'
+                })
+            except Exception as e:
+                print(f"Histogram chart error: {str(e)}")
+        if len(business_cols['numerical']) >= 2:
+            x_col = business_cols['numerical'][0]
+            y_col = business_cols['numerical'][1]
+            try:
+                fig = px.scatter(
+                    df, 
+                    x=x_col, 
+                    y=y_col,
+                    title=f"{y_col} vs {x_col}",
+                    trendline="ols" if len(df) < 1000 else None
+                )
+                code = f"""import plotly.express as px
+fig = px.scatter(df, x='{x_col}', y='{y_col}',
+                 title="{y_col} vs {x_col}", trendline="ols")"""
+                charts.append({
+                    'figure': create_dark_chart(fig),
+                    'title': f"{y_col} vs {x_col}",
+                    'type': 'scatter',
+                    'x_col': x_col,
+                    'y_col': y_col,
+                    'code': code,
+                    'data': df,
+                    'priority': 'medium',
+                    'reason': 'Correlation analysis'
+                })
+            except Exception as e:
+                print(f"Scatter chart error: {str(e)}")
+        return charts
+
     
-    def _create_code_based_charts(self, df, analysis, business_cols):
-        """Generate charts using verified Python code"""
+    # Modified _create_code_based_charts method
+    def _create_code_based_charts(self, data_frame, columns, target_num_charts=4):
+        """Create charts using AI-generated code."""
         charts = []
         
         try:
-            recommendations = analysis.get('recommendations', [])
+            # Your AI code generation logic here
+            code = self._generate_chart_code(data_frame, columns, target_num_charts)
             
-            for i, rec in enumerate(recommendations[:self.max_charts]):
-                code = rec.get('code', '')
+            if code:
+                # Execute code and extract charts
+                local_vars = {"data": data_frame, "px": px, "go": go, "np": np, "pd": pd}
+                exec(code, globals(), local_vars)
                 
-                # Verify code is safe and executable
-                if self._verify_code_safety(code):
-                    fig = self._execute_chart_code(code, df)
-                    if fig:
+                for var_name, var_value in local_vars.items():
+                    if isinstance(var_value, (go.Figure, plt.Figure)):
                         charts.append({
-                            'figure': create_dark_chart(fig),
-                            'title': rec.get('title', f'Chart {i+1}'),
-                            'type': rec.get('type', 'unknown'),
-                            'x_col': rec.get('x_col', ''),
-                            'y_col': rec.get('y_col', ''),
-                            'code': code,
-                            'data': df,
-                            'priority': rec.get('priority', 'medium'),
-                            'reason': rec.get('reason', 'AI-generated visualization')
+                            'figure': var_value,
+                            'title': f'🤖 AI Custom Chart #{len(charts)+1}',
+                            'is_ai_generated': True
                         })
-                
         except Exception as e:
-            print(f"Code-based chart creation error: {str(e)}")
+            print(f"Error in generated chart code: {e}")
         
-        # If not enough charts, add fallback charts
-        if len(charts) < 3:
-            fallback_charts = self._create_fallback_charts(df, business_cols)
-            charts.extend(fallback_charts[:self.max_charts - len(charts)])
+        # IMPORTANT: Only fall back if in mixed mode, not in pure agentic mode
+        if len(charts) < target_num_charts and not self.strict_agentic_mode:
+            # Add a property to control fallback behavior
+            fallback_charts = self._create_fallback_charts(
+                data_frame, columns, target_num_charts - len(charts)
+            )
+            charts.extend(fallback_charts)
         
         return charts
     
+    def _create_ai_generated_charts(self, df, analysis, business_cols):
+        """Generate charts directly from AI specifications"""
+        charts = []
+        for i, rec in enumerate(analysis.get('recommendations', [])[:self.max_charts]):
+            spec = rec.get('spec', {})
+            x_col = rec.get('x_col', '')
+            y_col = rec.get('y_col', '')
+            chart_type = rec.get('type', 'unknown').lower()
+            title = rec.get('title', f'Chart {i+1}')
+            if not x_col or (y_col and y_col not in df.columns) or x_col not in df.columns:
+                continue
+            try:
+                if chart_type == 'bar' and y_col:
+                    grouped = df.groupby(x_col)[y_col].mean().sort_values(ascending=False).head(10)
+                    fig = px.bar(
+                        x=grouped.index, 
+                        y=grouped.values,
+                        title=title,
+                        labels={'x': x_col, 'y': f'Average {y_col}'}
+                    )
+                    fig.update_layout(xaxis_tickangle=-45)
+                elif chart_type == 'line' and y_col and x_col in business_cols['temporal']:
+                    df_time = df.copy()
+                    df_time[x_col] = pd.to_datetime(df_time[x_col], errors='coerce')
+                    df_time = df_time.dropna(subset=[x_col])
+                    time_series = df_time.groupby(x_col)[y_col].sum().reset_index()
+                    fig = px.line(
+                        time_series,
+                        x=x_col,
+                        y=y_col,
+                        title=title
+                    )
+                elif chart_type == 'scatter' and y_col:
+                    fig = px.scatter(
+                        df,
+                        x=x_col,
+                        y=y_col,
+                        title=title,
+                        trendline="ols" if len(df) < 1000 else None
+                    )
+                elif chart_type == 'histogram':
+                    fig = px.histogram(
+                        df,
+                        x=x_col,
+                        title=title,
+                        nbins=30
+                    )
+                    fig.add_vline(x=df[x_col].mean(), line_dash="dash", annotation_text="Mean")
+                else:
+                    continue
+                charts.append({
+                    'figure': create_dark_chart(fig),
+                    'title': title,
+                    'reason': rec.get('reason', 'AI-generated visualization'),
+                    'priority': rec.get('priority', 'medium'),
+                    'x_col': x_col,
+                    'y_col': y_col,
+                    'data': df,
+                    'type': chart_type,
+                    'code': 'AI-generated chart specification (no Python code)'
+                })
+            except Exception as e:
+                print(f"AI-generated chart error: {str(e)}")
+        if len(charts) < 3:
+            fallback_charts = self._create_fallback_charts(df, business_cols)
+            charts.extend(fallback_charts[:self.max_charts - len(charts)])
+        return charts
+    
     def _verify_code_safety(self, code):
-        """Verify code is safe to execute"""
         dangerous_patterns = [
             'import os', 'import sys', '__import__', 'eval(', 'exec(',
             'open(', 'file(', 'input(', 'raw_input', 'compile(',
             'globals(', 'locals(', '__', 'getattr(', 'setattr(',
             'subprocess', 'system(', 'popen('
         ]
-        
         code_lower = code.lower()
         for pattern in dangerous_patterns:
             if pattern in code_lower:
                 return False
-        
-        # Check for valid imports
         allowed_imports = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'scipy', 'sklearn']
         lines = code.split('\n')
         for line in lines:
             if line.strip().startswith('import ') or 'from ' in line:
                 if not any(lib in line for lib in allowed_imports):
                     return False
-        
         return True
     
     def _execute_chart_code(self, code, df):
-        """Safely execute chart code and return figure"""
         try:
-            # Create a restricted execution environment
             safe_globals = {
                 '__builtins__': {
                     'len': len,
@@ -404,29 +609,19 @@ class ChartCreatorAgent:
                 'go': go,
                 'fig': None
             }
-            
-            # Execute the code
             exec(code, safe_globals)
-            
-            # Check if a figure was created
             if 'fig' in safe_globals and safe_globals['fig'] is not None:
                 return safe_globals['fig']
-            
             return None
-            
         except Exception as e:
             print(f"Code execution error: {str(e)}")
             return None
     
     def _create_fallback_charts(self, df, business_cols):
-        """Create basic fallback charts"""
         charts = []
-        
-        # Chart 1: Bar chart of top categorical vs numerical
         if business_cols['categorical'] and business_cols['numerical']:
             cat_col = business_cols['categorical'][0]
             num_col = business_cols['numerical'][0]
-            
             try:
                 grouped = df.groupby(cat_col)[num_col].mean().sort_values(ascending=False).head(10)
                 fig = px.bar(
@@ -435,12 +630,10 @@ class ChartCreatorAgent:
                     title=f"Average {num_col} by {cat_col}",
                     labels={'x': cat_col, 'y': f'Average {num_col}'}
                 )
-                
-                code = f'''import plotly.express as px
+                code = f"""import plotly.express as px
 grouped = df.groupby('{cat_col}')['{num_col}'].mean().sort_values(ascending=False).head(10)
 fig = px.bar(x=grouped.index, y=grouped.values, 
-             title="Average {num_col} by {cat_col}")'''
-                
+             title="Average {num_col} by {cat_col}")"""
                 charts.append({
                     'figure': create_dark_chart(fig),
                     'title': f"Average {num_col} by {cat_col}",
@@ -454,32 +647,26 @@ fig = px.bar(x=grouped.index, y=grouped.values,
                 })
             except Exception as e:
                 print(f"Bar chart error: {str(e)}")
-        
-        # Chart 2: Time series if temporal data exists
         if business_cols['temporal'] and business_cols['numerical']:
             time_col = business_cols['temporal'][0]
             num_col = business_cols['numerical'][0]
-            
             try:
                 df_time = df.copy()
                 df_time[time_col] = pd.to_datetime(df_time[time_col], errors='coerce')
                 df_time = df_time.dropna(subset=[time_col])
                 time_series = df_time.groupby(time_col)[num_col].sum().reset_index()
-                
                 fig = px.line(
                     time_series, 
                     x=time_col, 
                     y=num_col,
                     title=f"{num_col} Over Time"
                 )
-                
-                code = f'''import plotly.express as px
+                code = f"""import plotly.express as px
 df_time = df.copy()
 df_time['{time_col}'] = pd.to_datetime(df_time['{time_col}'])
 time_series = df_time.groupby('{time_col}')['{num_col}'].sum().reset_index()
 fig = px.line(time_series, x='{time_col}', y='{num_col}', 
-              title="{num_col} Over Time")'''
-                
+              title="{num_col} Over Time")"""
                 charts.append({
                     'figure': create_dark_chart(fig),
                     'title': f"{num_col} Over Time",
@@ -493,11 +680,8 @@ fig = px.line(time_series, x='{time_col}', y='{num_col}',
                 })
             except Exception as e:
                 print(f"Time series chart error: {str(e)}")
-        
-        # Chart 3: Distribution histogram
         if len(business_cols['numerical']) > 0:
             num_col = business_cols['numerical'][0]
-            
             try:
                 fig = px.histogram(
                     df, 
@@ -505,11 +689,9 @@ fig = px.line(time_series, x='{time_col}', y='{num_col}',
                     title=f"Distribution of {num_col}",
                     nbins=30
                 )
-                
-                code = f'''import plotly.express as px
+                code = f"""import plotly.express as px
 fig = px.histogram(df, x='{num_col}', 
-                   title="Distribution of {num_col}", nbins=30)'''
-                
+                   title="Distribution of {num_col}", nbins=30)"""
                 charts.append({
                     'figure': create_dark_chart(fig),
                     'title': f"Distribution of {num_col}",
@@ -523,12 +705,9 @@ fig = px.histogram(df, x='{num_col}',
                 })
             except Exception as e:
                 print(f"Histogram chart error: {str(e)}")
-        
-        # Chart 4: Scatter plot for correlations
         if len(business_cols['numerical']) >= 2:
             x_col = business_cols['numerical'][0]
             y_col = business_cols['numerical'][1]
-            
             try:
                 fig = px.scatter(
                     df, 
@@ -537,11 +716,9 @@ fig = px.histogram(df, x='{num_col}',
                     title=f"{y_col} vs {x_col}",
                     trendline="ols" if len(df) < 1000 else None
                 )
-                
-                code = f'''import plotly.express as px
+                code = f"""import plotly.express as px
 fig = px.scatter(df, x='{x_col}', y='{y_col}',
-                 title="{y_col} vs {x_col}", trendline="ols")'''
-                
+                 title="{y_col} vs {x_col}", trendline="ols")"""
                 charts.append({
                     'figure': create_dark_chart(fig),
                     'title': f"{y_col} vs {x_col}",
@@ -555,7 +732,6 @@ fig = px.scatter(df, x='{x_col}', y='{y_col}',
                 })
             except Exception as e:
                 print(f"Scatter chart error: {str(e)}")
-        
         return charts
 
 class InsightGeneratorAgent:
@@ -565,36 +741,23 @@ class InsightGeneratorAgent:
     def generate_insights(self, df, chart_info, analysis):
         """Generate rule-based insights without using AI (to avoid hallucination)"""
         insights = []
-        
         try:
             x_col = chart_info.get('x_col')
             y_col = chart_info.get('y_col')
             chart_type = chart_info.get('type', '').lower()
-            
-            # Statistical insights for numerical columns
             if y_col and y_col in df.columns and pd.api.types.is_numeric_dtype(df[y_col]):
                 stats = df[y_col].describe()
-                
-                # Basic statistics
-                insights.append(f"Average {y_col}: {stats['mean']:.2f} (±{stats['std']:.2f} std dev)")
-                
-                # Range
+                insights.append(f"Average {y_col}: {stats['mean']:.2f} (Â±{stats['std']:.2f} std dev)")
                 range_val = stats['max'] - stats['min']
                 insights.append(f"Range: {stats['min']:.2f} to {stats['max']:.2f} (span: {range_val:.2f})")
-                
-                # Quartile analysis
-                if stats['75%'] - stats['25%'] > 0:
-                    iqr = stats['75%'] - stats['25%']
+                iqr = stats['75%'] - stats['25%']
+                if iqr > 0:
                     insights.append(f"Middle 50% of values: {stats['25%']:.2f} to {stats['75%']:.2f}")
-                
-                # Outliers
                 lower_bound = stats['25%'] - 1.5 * iqr
                 upper_bound = stats['75%'] + 1.5 * iqr
                 outliers = df[(df[y_col] < lower_bound) | (df[y_col] > upper_bound)]
                 if len(outliers) > 0:
                     insights.append(f"Potential outliers: {len(outliers)} ({len(outliers)/len(df)*100:.1f}%)")
-            
-            # Chart-specific insights
             if chart_type == 'bar' and x_col and y_col:
                 if x_col in df.columns and y_col in df.columns:
                     try:
@@ -605,10 +768,8 @@ class InsightGeneratorAgent:
                         insights.append(f"Lowest {y_col}: {bottom_category} (total: {grouped.loc[bottom_category, 'sum']:.2f})")
                     except:
                         pass
-            
             elif chart_type == 'line' and x_col and y_col:
                 if y_col in df.columns and pd.api.types.is_numeric_dtype(df[y_col]):
-                    # Trend analysis
                     values = df[y_col].dropna()
                     if len(values) > 1:
                         first_val = values.iloc[0]
@@ -617,65 +778,47 @@ class InsightGeneratorAgent:
                             change_pct = ((last_val - first_val) / abs(first_val)) * 100
                             trend = "increasing" if change_pct > 5 else "decreasing" if change_pct < -5 else "stable"
                             insights.append(f"Overall trend: {trend} ({change_pct:+.1f}% change)")
-                        
-                        # Volatility
                         if len(values) > 2:
                             pct_changes = values.pct_change().dropna()
                             if len(pct_changes) > 0:
                                 volatility = pct_changes.std() * 100
                                 insights.append(f"Volatility: {volatility:.1f}% (std of period changes)")
-            
             elif chart_type == 'scatter' and x_col and y_col:
                 if x_col in df.columns and y_col in df.columns:
                     if pd.api.types.is_numeric_dtype(df[x_col]) and pd.api.types.is_numeric_dtype(df[y_col]):
-                        # Remove NaN values for correlation
                         valid_data = df[[x_col, y_col]].dropna()
                         if len(valid_data) > 2:
                             correlation = valid_data[x_col].corr(valid_data[y_col])
                             strength = "strong" if abs(correlation) > 0.7 else "moderate" if abs(correlation) > 0.4 else "weak"
                             direction = "positive" if correlation > 0 else "negative"
                             insights.append(f"Correlation: {strength} {direction} ({correlation:.3f})")
-                            
-                            # R-squared approximation
                             r_squared = correlation ** 2
                             insights.append(f"R-squared: {r_squared:.3f} ({r_squared*100:.1f}% variance explained)")
-            
             elif chart_type == 'histogram' and x_col:
                 if x_col in df.columns and pd.api.types.is_numeric_dtype(df[x_col]):
                     values = df[x_col].dropna()
                     if len(values) > 0:
-                        # Distribution shape
                         skewness = values.skew()
                         kurtosis = values.kurtosis()
-                        
                         skew_interpretation = "right-skewed" if skewness > 0.5 else "left-skewed" if skewness < -0.5 else "roughly symmetric"
                         insights.append(f"Distribution: {skew_interpretation} (skewness: {skewness:.2f})")
-                        
-                        # Percentiles
                         p10 = values.quantile(0.1)
                         p90 = values.quantile(0.9)
                         insights.append(f"80% of values between {p10:.2f} and {p90:.2f}")
-            
-            # Data quality insight
             total_nulls = df[x_col].isnull().sum() if x_col and x_col in df.columns else 0
             if y_col and y_col in df.columns:
                 total_nulls += df[y_col].isnull().sum()
             if total_nulls > 0:
                 insights.append(f"Missing values: {total_nulls} records")
-            
-            # Limit insights to prevent overwhelming
             return insights[:5] if insights else self._get_default_insights(chart_info)
-            
         except Exception as e:
             print(f"Insight generation error: {str(e)}")
             return self._get_default_insights(chart_info)
     
     def _get_default_insights(self, chart_info):
-        """Provide default rule-based insights"""
         chart_type = chart_info.get('type', 'visualization')
         x_col = chart_info.get('x_col', 'X-axis')
         y_col = chart_info.get('y_col', 'Y-axis')
-        
         return [
             f"This {chart_type} shows the relationship between {x_col} and {y_col or 'values'}",
             f"Data patterns visible in this visualization can guide decision-making",
@@ -683,28 +826,17 @@ class InsightGeneratorAgent:
         ]
 
 class AgenticAIAgent:
-    """
-    Main coordinator class for the Agentic AI system.
-    Manages and orchestrates multiple specialized AI agents for data analysis.
-    """
-    
     def __init__(self):
         self.name = "Agentic AI Coordinator"
         self.version = "1.0.0"
-        
-        # Initialize specialized agents
         self.data_analyst = None
         self.chart_creator = None
         self.insight_generator = None
-        
-        # Agent status tracking
         self.agent_status = {
             'data_analyst': 'idle',
             'chart_creator': 'idle',
             'insight_generator': 'idle'
         }
-        
-        # Learning and feedback system
         self.learning_data = {
             'preferred_charts': [],
             'avoided_columns': [],
@@ -712,27 +844,21 @@ class AgenticAIAgent:
             'user_feedback': [],
             'successful_patterns': []
         }
-        
-        # Conversation and coordination tracking
         self.conversation_log = []
         self.active_analysis = None
-        
+    
     def initialize_agents(self):
-        """Initialize all specialized AI agents if not already done."""
         if self.data_analyst is None:
             self.data_analyst = DataAnalystAgent()
             self.log_conversation("System", "Data Analyst Agent initialized")
-            
         if self.chart_creator is None:
             self.chart_creator = ChartCreatorAgent()
             self.log_conversation("System", "Chart Creator Agent initialized")
-            
         if self.insight_generator is None:
             self.insight_generator = InsightGeneratorAgent()
             self.log_conversation("System", "Insight Generator Agent initialized")
     
     def log_conversation(self, agent_name, message, message_type="info", details=None):
-        """Log agent conversations and coordination activities."""
         conversation_entry = {
             'agent': agent_name,
             'message': message,
@@ -741,42 +867,22 @@ class AgenticAIAgent:
             'details': details
         }
         self.conversation_log.append(conversation_entry)
-        
-        # Also update session state if available
         if 'agent_conversations' in st.session_state:
             st.session_state.agent_conversations.append(conversation_entry)
     
     def update_agent_status(self, agent_name, status):
-        """Update the status of a specific agent."""
         if agent_name in self.agent_status:
             self.agent_status[agent_name] = status
-            
-        # Also update session state if available
         if 'agent_status' in st.session_state:
             st.session_state.agent_status[agent_name] = status
     
     def run_full_analysis(self, dataframe, use_code_based_charts=True):
-        """
-        Orchestrate a complete analysis workflow using all agents.
-        
-        Args:
-            dataframe: The dataset to analyze
-            use_code_based_charts: Whether to use code-based or fully AI-generated charts
-            
-        Returns:
-            dict: Complete analysis results with charts, insights, and recommendations
-        """
         try:
-            # Initialize agents if needed
             self.initialize_agents()
-            
-            # Step 1: Data Analysis
             self.update_agent_status('data_analyst', 'analyzing')
             self.log_conversation("Agentic AI Coordinator", "Starting comprehensive data analysis workflow")
-            
             analysis_results = self.data_analyst.analyze_dataset(dataframe)
             self.active_analysis = analysis_results
-            
             self.log_conversation(
                 "Data Analyst Agent", 
                 f"Completed analysis: {len(analysis_results.get('recommendations', []))} visualization opportunities identified",
@@ -784,45 +890,27 @@ class AgenticAIAgent:
                 analysis_results
             )
             self.update_agent_status('data_analyst', 'complete')
-            
-            # Step 2: Chart Creation
             self.update_agent_status('chart_creator', 'creating')
-            
-            if use_code_based_charts:
-                charts = self.chart_creator.create_intelligent_charts(dataframe, analysis_results)
-            else:
-                # For fully AI-generated charts, could add different method here
-                charts = self.chart_creator.create_intelligent_charts(dataframe, analysis_results)
-            
+            charts = self.chart_creator.create_intelligent_charts(dataframe, analysis_results)
             self.log_conversation(
                 "Chart Creator Agent",
                 f"Generated {len(charts)} visualizations using {'code-based' if use_code_based_charts else 'AI-generated'} approach",
                 "creator"
             )
             self.update_agent_status('chart_creator', 'complete')
-            
-            # Step 3: Insight Generation
             self.update_agent_status('insight_generator', 'generating')
-            
             total_insights = 0
             for chart in charts:
-                chart['insights'] = self.insight_generator.generate_insights(
-                    dataframe, chart, analysis_results
-                )
+                chart['insights'] = self.insight_generator.generate_insights(dataframe, chart, analysis_results)
                 total_insights += len(chart.get('insights', []))
-            
             self.log_conversation(
                 "Insight Generator Agent",
                 f"Generated {total_insights} business insights across all visualizations",
                 "insight"
             )
             self.update_agent_status('insight_generator', 'complete')
-            
-            # Reset all agents to idle
             for agent in self.agent_status:
                 self.update_agent_status(agent, 'idle')
-            
-            # Compile final results
             results = {
                 'analysis': analysis_results,
                 'charts': charts,
@@ -835,19 +923,13 @@ class AgenticAIAgent:
                     'use_code_based_charts': use_code_based_charts
                 }
             }
-            
             self.log_conversation("Agentic AI Coordinator", "Analysis workflow completed successfully")
             return results
-            
         except Exception as e:
-            # Handle errors gracefully
             error_msg = f"Analysis workflow failed: {str(e)}"
             self.log_conversation("Agentic AI Coordinator", error_msg, "error")
-            
-            # Reset agent statuses on error
             for agent in self.agent_status:
                 self.update_agent_status(agent, 'error')
-            
             return {
                 'error': error_msg,
                 'conversation_log': self.conversation_log,
@@ -855,57 +937,33 @@ class AgenticAIAgent:
             }
     
     def create_custom_chart(self, dataframe, user_prompt, business_context=""):
-        """
-        Create a custom chart based on user request.
-        
-        Args:
-            dataframe: The dataset to analyze
-            user_prompt: User's specific request for visualization
-            business_context: Additional business context
-            
-        Returns:
-            dict: Custom chart with analysis
-        """
         try:
             self.initialize_agents()
-            
-            # Enhanced prompt for custom analysis
             enhanced_prompt = f"""
             User Request: {user_prompt}
             Business Context: {business_context or self.learning_data.get('business_context', '')}
-            
             Dataset Info:
             - Shape: {dataframe.shape}
             - Columns: {list(dataframe.columns)}
             - Data Types: {dataframe.dtypes.to_dict()}
             """
-            
-            # Use the data analyst to understand the request
             custom_analysis = self.data_analyst.analyze_dataset(dataframe)
-            
-            # Create chart based on analysis
             charts = self.chart_creator.create_intelligent_charts(dataframe, custom_analysis)
-            
             if charts:
-                chart = charts[0]  # Take the first relevant chart
+                chart = charts[0]
                 chart['prompt'] = user_prompt
-                chart['ai_analysis'] = self.insight_generator.generate_insights(
-                    dataframe, chart, custom_analysis
-                )
-                
+                chart['ai_analysis'] = self.insight_generator.generate_insights(dataframe, chart, custom_analysis)
                 self.log_conversation(
                     "Custom Chart Creator",
                     f"Created custom visualization for: {user_prompt[:50]}...",
                     "custom"
                 )
-                
                 return chart
             else:
                 return {
                     'error': 'Could not generate chart for the given request',
                     'prompt': user_prompt
                 }
-                
         except Exception as e:
             return {
                 'error': f'Custom chart creation failed: {str(e)}',
@@ -913,47 +971,31 @@ class AgenticAIAgent:
             }
     
     def process_user_feedback(self, feedback_data):
-        """
-        Process user feedback to improve AI recommendations.
-        
-        Args:
-            feedback_data: Dictionary containing user feedback
-        """
         try:
             self.learning_data['user_feedback'].append(feedback_data)
-            
-            # Extract learning patterns
             rating_value = len(feedback_data.get('chart_rating', '⭐⭐⭐').split('⭐')) - 1
-            
-            if rating_value >= 4:  # Good rating
+            if rating_value >= 4:
                 chart_pattern = f"{feedback_data.get('chart_type')}:{feedback_data.get('x_col')}:{feedback_data.get('y_col')}"
                 if chart_pattern not in self.learning_data['preferred_charts']:
                     self.learning_data['preferred_charts'].append(chart_pattern)
-                    
                 self.learning_data['successful_patterns'].append({
                     'pattern': chart_pattern,
                     'feedback': feedback_data.get('feedback_text', ''),
                     'rating': rating_value,
                     'timestamp': datetime.now().isoformat()
                 })
-                
-            elif rating_value <= 2:  # Poor rating
+            elif rating_value <= 2:
                 x_col = feedback_data.get('x_col')
                 if x_col and x_col not in self.learning_data['avoided_columns']:
                     self.learning_data['avoided_columns'].append(x_col)
-            
-            # Update session state learning data
             if 'agent_learning' in st.session_state:
                 st.session_state.agent_learning.update(self.learning_data)
-            
             self.log_conversation(
                 "Learning System",
                 f"Processed feedback for {feedback_data.get('chart_title', 'chart')} - Rating: {rating_value}/5",
                 "feedback"
             )
-            
             return True
-            
         except Exception as e:
             self.log_conversation(
                 "Learning System",
@@ -963,41 +1005,21 @@ class AgenticAIAgent:
             return False
     
     def get_smart_recommendations(self, dataframe):
-        """
-        Get intelligent recommendations based on learning history.
-        
-        Args:
-            dataframe: The dataset to analyze
-            
-        Returns:
-            list: Smart recommendations based on past feedback
-        """
         try:
             self.initialize_agents()
-            
-            # Get base analysis
             analysis = self.data_analyst.analyze_dataset(dataframe)
-            
-            # Filter recommendations based on learning
             filtered_recommendations = []
             for rec in analysis.get('recommendations', []):
                 x_col = rec.get('x_col')
                 chart_type = rec.get('type')
-                
-                # Skip avoided columns
                 if x_col in self.learning_data.get('avoided_columns', []):
                     continue
-                
-                # Boost priority for preferred patterns
                 pattern = f"{chart_type}:{x_col}:{rec.get('y_col', '')}"
                 if pattern in self.learning_data.get('preferred_charts', []):
                     rec['priority'] = 'high'
                     rec['reason'] += " (User preferred pattern)"
-                
                 filtered_recommendations.append(rec)
-            
             return filtered_recommendations
-            
         except Exception as e:
             self.log_conversation(
                 "Smart Recommendations",
@@ -1007,7 +1029,6 @@ class AgenticAIAgent:
             return []
     
     def export_learning_summary(self):
-        """Export a summary of AI learning progress."""
         return {
             'total_feedback_sessions': len(self.learning_data.get('user_feedback', [])),
             'preferred_chart_patterns': len(self.learning_data.get('preferred_charts', [])),
@@ -1022,20 +1043,16 @@ class AgenticAIAgent:
         }
     
     def reset_agents(self):
-        """Reset all agents and clear session data."""
         self.data_analyst = None
         self.chart_creator = None  
         self.insight_generator = None
         self.conversation_log = []
         self.active_analysis = None
-        
         for agent in self.agent_status:
-            self.agent_status[agent] = 'idle'
-        
+            self.update_agent_status(agent, 'idle')
         self.log_conversation("System", "All agents reset successfully")
-        
+    
     def get_system_status(self):
-        """Get comprehensive system status."""
         return {
             'agents_initialized': all([
                 self.data_analyst is not None,
@@ -1049,16 +1066,26 @@ class AgenticAIAgent:
             'system_version': self.version
         }
 
-# Existing track_agentic_ai_usage function
+class YourVisualizationClass:
+    def __init__(self, use_agentic_ai=False, strict_agentic_mode=False):
+        """
+        Initialize visualization class.
+        
+        Args:
+            use_agentic_ai: Whether to use AI-generated charts.
+            strict_agentic_mode: If True, only show AI-generated charts when agentic AI
+                                is enabled, with no fallback to standard charts.
+        """
+        self.use_agentic_ai = use_agentic_ai
+        self.strict_agentic_mode = strict_agentic_mode
+
 def track_agentic_ai_usage(user_id, supabase):
     if st.session_state.get("user_role") == "Viewer":
-        # Check usage limit
         result = supabase.table("usage").select("count").eq("user_id", user_id).eq("feature", "agentic_ai").execute()
         usage_count = result.data[0]["count"] if result.data else 0
         if usage_count >= 5:
             st.error("Free usage limit reached. Upgrade to Pro for unlimited Agentic AI analyses.")
             return False
-        # Increment usage
         supabase.table("usage").insert({
             "user_id": user_id,
             "feature": "agentic_ai",
@@ -1067,25 +1094,14 @@ def track_agentic_ai_usage(user_id, supabase):
     return True
 
 def agentic_ai_chart_tab():
-    # Initialize Agentic AI
     agentic_ai = AgenticAIAgent()
-
-    """Render the REAL Agentic AI Chart System with intelligent OpenAI-powered agents.
-    
-    Professional HTML export with NarraViz.ai branding and beta disclaimers.
-    Supports toggle between code-based and fully AI-generated charts.
-    """
     st.subheader("🤖 Real Agentic AI Chart System - Intelligent Analysis")
-
     if not st.session_state.get("agentic_ai_enabled", False):
         st.warning("Agentic AI is disabled. Enable it in the sidebar to access advanced analytics.")
         return
-    
     if st.session_state.dataset is None:
         st.info("No dataset loaded. Please upload a dataset in the 'Data' tab.")
         return
-
-    # Initialize session state
     if 'agent_conversations' not in st.session_state:
         st.session_state.agent_conversations = []
     if 'agent_status' not in st.session_state:
@@ -1113,9 +1129,7 @@ def agentic_ai_chart_tab():
             'business_context': ""
         }
     if 'use_code_based_charts' not in st.session_state:
-        st.session_state.use_code_based_charts = True  # Default to code-based charts
-
-    # Enhanced CSS with dark chart backgrounds
+        st.session_state.use_code_based_charts = True
     st.markdown("""
     <style>
     .agent-card {
@@ -1273,10 +1287,18 @@ def agentic_ai_chart_tab():
     strong {
         color: #DBEAFE;
     }
+    .code-section {
+        background-color: #1F2937;
+        padding: 10px;
+        border-radius: 8px;
+        font-family: monospace;
+        font-size: 0.9em;
+        color: #93C5FD;
+        margin-top: 10px;
+        overflow-x: auto;
+    }
     </style>
     """, unsafe_allow_html=True)
-
-    # Dashboard save/load functionality
     def save_dashboard():
         dashboard_data = {
             'timestamp': datetime.now().isoformat(),
@@ -1292,13 +1314,12 @@ def agentic_ai_chart_tab():
         return dashboard_data
     
     def export_to_pdf():
-        """Export the dashboard to HTML report"""
         df = st.session_state.dataset
         business_cols = get_business_relevant_columns(df)
         chart_images = []
-        for i, chart in enumerate(st.session_state.agent_recommendations):
+        for idx, chart in enumerate(st.session_state.agent_recommendations):
             try:
-                chart_html = chart['figure'].to_html(include_plotlyjs='cdn', div_id=f"chart_{i}")
+                chart_html = chart['figure'].to_html(include_plotlyjs='cdn', div_id=f"chart_{idx}")
                 chart_images.append({
                     'title': chart['title'],
                     'html': chart_html,
@@ -1316,12 +1337,11 @@ def agentic_ai_chart_tab():
                     'priority': chart.get('priority', 'medium'),
                     'code': chart.get('code', '')
                 })
-        
         custom_chart_images = []
-        for i, custom_chart in enumerate(st.session_state.custom_charts):
+        for idx, custom_chart in enumerate(st.session_state.custom_charts):
             if isinstance(custom_chart, dict) and custom_chart.get('figure'):
                 try:
-                    chart_html = custom_chart['figure'].to_html(include_plotlyjs='cdn', div_id=f"custom_chart_{i}")
+                    chart_html = custom_chart['figure'].to_html(include_plotlyjs='cdn', div_id=f"custom_chart_{idx}")
                     custom_chart_images.append({
                         'prompt': custom_chart.get('prompt', f'Custom Chart {i+1}'),
                         'html': chart_html,
@@ -1333,9 +1353,9 @@ def agentic_ai_chart_tab():
                         'prompt': custom_chart.get('prompt', f'Custom Chart {i+1}'),
                         'html': '<div>Custom chart could not be exported</div>',
                         'analysis': custom_chart.get('ai_analysis', 'No analysis available'),
-                        'code': custom_chart.get('code', '')
-                    })
-        
+                        'code': custom_chart.get('code', '')})
+
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -1706,11 +1726,8 @@ def agentic_ai_chart_tab():
         return html_content.encode()
 
     df = st.session_state.dataset
-    
-    # Quick Data Diagnostic
     st.markdown("### 🔍 Smart Data Overview")
     business_cols = get_business_relevant_columns(df)
-    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Rows", f"{len(df):,}")
@@ -1721,7 +1738,6 @@ def agentic_ai_chart_tab():
     with col4:
         completeness = (1 - df.isnull().sum().sum() / (len(df) * len(df.columns))) * 100
         st.metric("Data Completeness", f"{completeness:.1f}%")
-    
     with st.expander("🤖 What AI Will Analyze", expanded=False):
         col_diag1, col_diag2, col_diag3 = st.columns(3)
         with col_diag1:
@@ -1742,8 +1758,6 @@ def agentic_ai_chart_tab():
                 st.markdown(f"• {col}")
             if len(excluded) > 5:
                 st.markdown(f"• ...and {len(excluded)-5} more")
-    
-    # Check if OpenAI is available
     if not USE_OPENAI:
         st.error("🔑 OpenAI API key not configured. Please check your secrets.toml file.")
         st.info("💡 Add your OpenAI key to .streamlit/secrets.toml:\n```\n[openai]\napi_key = \"your-key-here\"\n```")
@@ -1753,15 +1767,16 @@ def agentic_ai_chart_tab():
     data_analyst = DataAnalystAgent()
     chart_creator = ChartCreatorAgent()
     insight_generator = InsightGeneratorAgent()
-    
-    # Toggle for chart generation mode
-    st.markdown("### Chart Generation Mode")
-    st.session_state.use_code_based_charts = st.toggle(
+
+
+    # Chart Generation Mode
+    use_code = st.checkbox(
         "Use Code-Based Charts",
-        value=st.session_state.use_code_based_charts,
-        help="Enable to generate charts using verified Python code (reduces AI hallucination). Disable for fully AI-generated charts.",
-        key="chart_mode_toggle"
+         value=st.session_state.get("use_code_based_charts", True),
+         help="Enable to generate charts using verified Python code (reduces AI hallucination). Disable for fully AI-generated charts.",
+         key="use_code_based_charts"
     )
+ 
 
     # Header with controls
     col1, col2, col3, col4 = st.columns([2, 0.8, 0.8, 0.8])
@@ -1900,7 +1915,7 @@ def agentic_ai_chart_tab():
             
             col1, col2 = st.columns([0.7, 0.3])
             with col1:
-                st.plotly_chart(chart['figure'], use_container_width=True)
+                st.plotly_chart(chart['figure'], use_container_width=True, key=f"rec_chart-{i}")
                 
                 with st.expander("💻 Generated Code", expanded=False):
                     st.code(chart['code'], language="python")
@@ -2023,7 +2038,7 @@ def agentic_ai_chart_tab():
                 col1, col2 = st.columns([0.7, 0.3])
                 with col1:
                     if custom_chart.get('figure'):
-                        st.plotly_chart(custom_chart['figure'], use_container_width=True)
+                        st.plotly_chart(custom_chart['figure'], use_container_width=True, key=f"custom_chart-{i}")
                     with st.expander("💻 Generated Code", expanded=False):
                         st.code(custom_chart.get('code', 'No code available'), language="python")
                 
